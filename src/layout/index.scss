@@ -1,0 +1,34 @@
+.app-wrapper {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  background: var(--ds-bg-page);
+}
+.app-sidebar {
+  transition: width 0.28s ease;
+  width: var(--page-menu-width) !important;
+  background-color: var(--page-menu-background);
+  box-shadow: var(--ds-shadow-sidebar);
+  border-right: 1px solid var(--ds-border-light);
+  height: 100%;
+  position: fixed;
+  font-size: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1001;
+  overflow: hidden;
+  color: var(--ds-text-primary);
+}
+.app-main {
+  min-height: 100%;
+  transition: margin-left 0.28s ease;
+  margin-left: var(--page-menu-width);
+  position: relative;
+  background: var(--ds-bg-page);
+}
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 99;
+}

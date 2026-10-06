@@ -1,0 +1,161 @@
+:root {
+  /* ============ 设计令牌 (Design Tokens) ============ */
+
+  /* —— 主色系列 —— */
+  --ds-primary: #2563eb;
+  --ds-primary-deep: #1d4ed8;
+  --ds-primary-light: #dbeafe;
+  --ds-primary-soft: #eff6ff;
+
+  /* —— 功能色 —— */
+  --ds-accent: #0ea5e9;
+  --ds-success: #10b981;
+  --ds-warning: #f59e0b;
+  --ds-danger: #ef4444;
+
+  /* —— 中性色 —— */
+  --ds-text-primary: #0f172a;
+  --ds-text-regular: #475569;
+  --ds-text-tertiary: #94a3b8;
+  --ds-bg-page: #f0f4f8;
+  --ds-bg-card: #ffffff;
+  --ds-bg-elevated: #f8fafc;
+  --ds-bg-muted: #f1f5f9;
+  --ds-border: #e2e8f0;
+  --ds-border-light: #f1f5f9;
+
+  /* —— 圆角 —— */
+  --ds-radius-card: 16px;
+  --ds-radius-control: 12px;
+  --ds-radius-small: 8px;
+
+  /* —— 字体 —— */
+  --ds-font-family: "Outfit", "Noto Sans SC", -apple-system, BlinkMacSystemFont,
+    "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --ds-font-page-title: 22px;
+  --ds-font-card-title: 15px;
+  --ds-font-body: 13px;
+  --ds-font-helper: 12px;
+  --ds-font-tag: 11px;
+
+  /* —— 阴影 —— */
+  --ds-shadow-card: 0 2px 12px rgba(0, 0, 0, 0.04);
+  --ds-shadow-sidebar: 4px 0 24px rgba(0, 0, 0, 0.03);
+  --ds-shadow-header: 0 1px 12px rgba(0, 0, 0, 0.04);
+  --ds-shadow-button-hover: 0 6px 20px rgba(37, 99, 235, 0.3);
+  --ds-shadow-avatar: 0 2px 8px rgba(0, 0, 0, 0.08);
+
+  /* —— 过渡 —— */
+  --ds-transition: all 0.2s ease;
+
+  /* ============ 布局变量 ============ */
+  --page-header-height: 60px;
+  --page-header-background: #ffffff;
+  --page-menu-width: 240px;
+  --page-menu-collapse-width: 64px;
+  --page-menu-background: #ffffff;
+  --page-menu-hover-background: var(--ds-primary-soft);
+  --page-menu-active-background: var(--ds-primary);
+  --page-menu-text-color: var(--ds-text-regular);
+  --page-menu-text-active-color: #ffffff;
+  --page-menu-text-hover-color: var(--ds-primary);
+  --page-container-background: var(--ds-bg-page);
+
+  /* ============ Element Plus 运行时变量覆盖 ============ */
+  --el-color-primary: var(--ds-primary);
+  --el-color-primary-light-3: #4f7ff0;
+  --el-color-primary-light-5: #7ea0f3;
+  --el-color-primary-light-7: #aec1f7;
+  --el-color-primary-light-8: #cbd7fa;
+  --el-color-primary-light-9: var(--ds-primary-light);
+  --el-color-primary-dark-2: var(--ds-primary-deep);
+
+  --el-color-success: var(--ds-success);
+  --el-color-success-light-3: #44c79c;
+  --el-color-success-light-5: #77d4b4;
+  --el-color-success-light-7: #a9e2cc;
+  --el-color-success-light-8: #c2e9da;
+  --el-color-success-light-9: #dcf3e7;
+  --el-color-success-dark-2: #0d9268;
+
+  --el-color-warning: var(--ds-warning);
+  --el-color-warning-light-3: #f7b243;
+  --el-color-warning-light-5: #facc7c;
+  --el-color-warning-light-7: #fce0a8;
+  --el-color-warning-light-8: #fde9bf;
+  --el-color-warning-light-9: #fef3da;
+  --el-color-warning-dark-2: #c47d09;
+
+  --el-color-danger: var(--ds-danger);
+  --el-color-danger-light-3: #f26d6d;
+  --el-color-danger-light-5: #f59595;
+  --el-color-danger-light-7: #f9bdbd;
+  --el-color-danger-light-8: #fbd1d1;
+  --el-color-danger-light-9: #fde5e5;
+  --el-color-danger-dark-2: #c63838;
+
+  --el-color-info: var(--ds-text-tertiary);
+  --el-color-info-light-9: var(--ds-bg-muted);
+
+  --el-text-color-primary: var(--ds-text-primary);
+  --el-text-color-regular: var(--ds-text-regular);
+  --el-text-color-secondary: var(--ds-text-regular);
+  --el-text-color-placeholder: var(--ds-text-tertiary);
+  --el-text-color-disabled: #cbd5e1;
+
+  --el-border-color: var(--ds-border);
+  --el-border-color-light: var(--ds-border-light);
+  --el-border-color-lighter: var(--ds-border-light);
+  --el-border-color-extra-light: var(--ds-border-light);
+
+  --el-bg-color: var(--ds-bg-card);
+  --el-bg-color-page: var(--ds-bg-page);
+  --el-bg-color-overlay: var(--ds-bg-card);
+  --el-fill-color: var(--ds-bg-muted);
+  --el-fill-color-light: var(--ds-bg-elevated);
+  --el-fill-color-lighter: var(--ds-bg-elevated);
+  --el-fill-color-blank: #ffffff;
+
+  --el-border-radius-base: var(--ds-radius-control);
+  --el-border-radius-small: var(--ds-radius-small);
+  --el-border-radius-round: 20px;
+
+  --el-box-shadow: var(--ds-shadow-card);
+  --el-box-shadow-light: var(--ds-shadow-card);
+  --el-box-shadow-lighter: var(--ds-shadow-card);
+
+  --el-font-family: var(--ds-font-family);
+  --el-font-size-base: var(--ds-font-body);
+  --el-font-size-small: var(--ds-font-helper);
+  --el-font-size-extra-small: var(--ds-font-tag);
+  --el-font-size-medium: 14px;
+  --el-font-size-large: var(--ds-font-card-title);
+  --el-font-size-extra-large: var(--ds-font-page-title);
+
+  --el-transition-duration: 0.2s;
+  --el-transition-duration-fast: 0.15s;
+}
+
+html,
+body {
+  background: var(--ds-bg-page) !important;
+  color: var(--ds-text-primary);
+  font-family: var(--ds-font-family);
+  font-size: var(--ds-font-body);
+}
+
+/* —— 滚动条美化 —— */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
