@@ -14,6 +14,7 @@ declare module 'vue' {
     BreadcrumbNav: typeof import('./../components/BreadcrumbNav/index.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElConfigProvider: typeof import('element-plus/es')['ElConfigProvider']
+    MarkdownReply: typeof import('./../components/MarkdownReply/index.vue')['default']
     OverflowText: typeof import('./../components/OverflowText/index.vue')['default']
     PageHeader: typeof import('./../components/PageHeader/index.vue')['default']
     Redirect: typeof import('./../components/Redirect/index.vue')['default']

@@ -16,6 +16,7 @@ export enum MessageRole {
 export enum ChatEventType {
   START = "start",
   DELTA = "delta",
+  THINKING = "thinking",
   TOOL = "tool",
   CONFIRMATION = "confirmation",
   DONE = "done",
@@ -26,6 +27,10 @@ export enum ChatEventType {
 export interface ChatMessage {
   role: MessageRole;
   content: string;
+  reasoningContent?: string;
+  /** 当前执行阶段用时；完成后由服务端校准，历史消息也返回该字段。 */
+  durationMs?: number | null;
+  timing?: boolean;
 }
 export interface ChatSession {
   sessionId: string;
@@ -83,6 +88,8 @@ export interface SessionView {
   stopping: boolean;
   notice: string;
   confirmation: PendingConfirmation | null;
+  submittedChoice: { request: PendingConfirmation; answers: ChoiceAnswer[] } | null;
+  choiceCollapsed: boolean;
   tools: ToolActivity[];
   answers: ChoiceAnswer[];
   error: string;

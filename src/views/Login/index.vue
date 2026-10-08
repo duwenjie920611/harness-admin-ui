@@ -112,11 +112,21 @@ h2 { margin: 12px 0 10px; font-size: 28px; font-weight: 600; letter-spacing: -.8
 .login-description { margin: 0 0 30px; color: #879086; font-size: 13px; line-height: 1.8; }
 .login-field { margin-bottom: 20px; }
 label { display: block; margin-bottom: 9px; color: #526451; font-size: 12px; font-weight: 500; }
-.input-shell { display: flex; align-items: center; min-height: 49px; gap: 10px; padding: 0 13px; border: 1px solid #dfe6db; border-radius: 11px; background: #fcfdfb; transition: border-color .15s, box-shadow .15s; }
-.input-shell:focus-within { border-color: #7aa486; box-shadow: 0 0 0 3px #5a8b7014; background: white; }
+.input-shell { display: flex; align-items: center; min-height: 49px; gap: 10px; padding: 0 13px; border: 1px solid #dfe6db; border-radius: 11px; --input-background: #f3f7f2; background: var(--input-background); transition: border-color .15s, box-shadow .15s; }
+.input-shell:focus-within { border-color: #7aa486; box-shadow: 0 0 0 3px #5a8b7014; --input-background: #f8fbf7; }
 .input-shell:has(input:disabled) { opacity: .65; }
 .input-shell > svg { flex-shrink: 0; width: 18px; height: 18px; fill: none; stroke: #95a18d; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 input { min-width: 0; flex: 1; width: 100%; height: 48px; padding: 0; border: 0; outline: none; background: transparent; color: #25352f; font: inherit; font-size: 14px; }
+/* 自动填充与整个输入框使用同一底色，避免浏览器默认蓝色背景割裂图标和文字区域。 */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #25352f;
+  caret-color: #25352f;
+  -webkit-box-shadow: 0 0 0 1000px var(--input-background) inset;
+  box-shadow: 0 0 0 1000px var(--input-background) inset;
+}
+input:autofill { background: var(--input-background); color: #25352f; }
 input::placeholder { color: #a7afa2; font-size: 12px; }
 button { font: inherit; cursor: pointer; }
 .password-toggle { flex-shrink: 0; padding: 6px 0 6px 6px; border: 0; background: transparent; color: #7c9477; font-size: 11px; }

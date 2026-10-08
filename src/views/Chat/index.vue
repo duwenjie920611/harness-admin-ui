@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import MarkdownReply from "@/components/MarkdownReply/index.vue";
 import { authFetch, currentUser, logout } from "@/api/auth";
 
 import { ApprovalScope, InteractionType, MessageRole, ChatEventType } from "./model";
@@ -264,7 +265,7 @@ function viewFor(workspace: string, id: string): SessionView {
   const key = viewKey(workspace, id);
   touchViewKey(key);
   if (!sessionViews[key]) {
-    sessionViews[key] = { input: "", pending: false, stopping: false, notice: "", confirmation: null, tools: [], answers: [], error: "", messages: [] };
+    sessionViews[key] = { input: "", pending: false, stopping: false, notice: "", confirmation: null, submittedChoice: null, choiceCollapsed: false, tools: [], answers: [], error: "", messages: [] };
   }
   // 必须从 reactive 容器重新读取代理；赋值表达式首次返回的是原始对象，异步写入不会刷新页面。
   return sessionViews[key]!;
@@ -286,6 +287,10 @@ const pending = computed({ get: () => activeView.value.pending, set: value => { 
 const confirmation = computed({ get: () => activeView.value.confirmation, set: value => { activeView.value.confirmation = value; } });
 const tools = computed({ get: () => activeView.value.tools, set: value => { activeView.value.tools = value; } });
 const answers = computed({ get: () => activeView.value.answers, set: value => { activeView.value.answers = value; } });
+const choicePending = computed(() => confirmation.value?.type === InteractionType.CHOICE);
+const displayedChoice = computed(() => choicePending.value ? confirmation.value : activeView.value.submittedChoice?.request);
+const displayedAnswers = computed(() => choicePending.value ? answers.value : activeView.value.submittedChoice?.answers || []);
+
 const error = computed({ get: () => activeView.value.error, set: value => { activeView.value.error = value; } });
 const messages = computed({ get: () => activeView.value.messages, set: value => { activeView.value.messages = value; } });
 const history = ref<HTMLElement>();
@@ -368,9 +373,19 @@ async function query<T>(path: string, user: string, session: string | null, work
 /** 显式传入 target：默认参数在调用时求值，异步回调里会指向「当前」会话，容易串写到错误视图。 */
 function setConfirmation(value: PendingConfirmation | null, target: SessionView) {
   if (target.confirmation?.requestId !== value?.requestId) {
+    if (value?.type === InteractionType.CHOICE) {
+      target.choiceCollapsed = false;
+    }
     target.answers = (value?.questions || []).map<ChoiceAnswer>(question => ({ questionId: question.questionId, selectedOptionIds: [], text: "" }));
   }
   target.confirmation = value;
+}
+
+function updateChoiceText(index: number, event: Event) {
+  const answer = answers.value[index];
+  if (choicePending.value && answer) {
+    answer.text = (event.target as HTMLTextAreaElement).value;
+  }
 }
 
 function selectOption(index: number, optionId: string, multiple: boolean) {
@@ -395,6 +410,13 @@ async function answerQuestions() {
     error.value = "请回答全部问题";
     return;
   }
+  const target = activeView.value;
+  const request = confirmation.value;
+  target.submittedChoice = {
+    request,
+    answers: answers.value.map(answer => ({ ...answer, selectedOptionIds: [...answer.selectedOptionIds] })),
+  };
+  target.choiceCollapsed = true;
   pending.value = true;
   error.value = "";
   const summary = (confirmation.value.questions || []).map(question => {
@@ -413,6 +435,10 @@ async function answerQuestions() {
     requestId: confirmation.value.requestId,
     answers: answers.value,
   }, slot, "");
+  // 后端仍保留本问题时，展开原表单并保留答案，便于重试。
+  if (target.confirmation?.requestId === request.requestId) {
+    target.choiceCollapsed = false;
+  }
 }
 
 async function fetchConfirmation(user: string, session: string, workspace = activeWorkspace.value): Promise<PendingConfirmation | null> {
@@ -594,6 +620,24 @@ async function stream(path: string, payload: Record<string, unknown>, slot: Chat
   const id = payload.sessionId as string;
   const target = viewFor(workspace, id);
   target.notice = "";
+  // 每个流独立计时，切换会话不会覆盖其他会话的用时；确认等待不计入。
+  const startedAt = performance.now();
+  if (slot) {
+    slot.durationMs = 0;
+    slot.timing = true;
+  }
+  const durationTimer = window.setInterval(() => {
+    if (slot?.timing) {
+      slot.durationMs = Math.max(0, performance.now() - startedAt);
+    }
+  }, 1000);
+  const finishTiming = (durationMs?: number) => {
+    if (slot?.timing) {
+      slot.durationMs = durationMs ?? Math.max(0, performance.now() - startedAt);
+      slot.timing = false;
+    }
+    window.clearInterval(durationTimer);
+  };
   const list = projectSessions.value[workspace] ||= [];
   if (!list.some(item => item.sessionId === id)) {
     list.unshift({ sessionId: id, title: message.slice(0, 40) || target.messages.find(item => item.role === MessageRole.USER)?.content.slice(0, 40) || "会话", createdAt: Date.now(), updatedAt: Date.now() });
@@ -601,16 +645,6 @@ async function stream(path: string, payload: Record<string, unknown>, slot: Chat
   if (activeWorkspace.value === workspace) {
     sessions.value = list;
   }
-  /** 移除尚未产出内容的占位气泡；通过身份比较而非数组下标，避免并发事件导致误删相邻消息。 */
-  const dropEmptySlot = () => {
-    if (!slot || slot.content) {
-      return;
-    }
-    const index = target.messages.indexOf(slot);
-    if (index !== -1) {
-      target.messages.splice(index, 1);
-    }
-  };
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => {
@@ -656,6 +690,9 @@ async function stream(path: string, payload: Record<string, unknown>, slot: Chat
           slot.content += payload.text;
         }
       }
+      if (event === ChatEventType.THINKING && slot) {
+        slot.reasoningContent = (slot.reasoningContent || "") + payload.text;
+      }
       if (event === ChatEventType.TOOL) {
         const existing = target.tools.find(tool => tool.id === payload.id);
         if (existing) {
@@ -665,11 +702,12 @@ async function stream(path: string, payload: Record<string, unknown>, slot: Chat
         }
       }
       if (event === ChatEventType.CONFIRMATION) {
+        finishTiming();
         setConfirmation(payload, target);
         completed = true;
-        dropEmptySlot();
       }
       if (event === ChatEventType.DONE) {
+        finishTiming(payload.durationMs);
         setConfirmation(null, target);
         if (slot) {
           slot.content = payload.reply;
@@ -687,10 +725,10 @@ async function stream(path: string, payload: Record<string, unknown>, slot: Chat
         }
       }
       if (event === ChatEventType.STOPPED) {
-        // 保留已有正文；尚未收到正文时删除空助手气泡，工具记录和停止提示仍可见。
+        finishTiming();
+        // 保留正文及用时；即使尚未收到正文，也能查看此次执行耗时。
         target.notice = payload.message;
         completed = true;
-        dropEmptySlot();
       }
       if (event === ChatEventType.ERROR) {
         throw new Error(payload.message);
@@ -725,6 +763,7 @@ async function stream(path: string, payload: Record<string, unknown>, slot: Chat
       target.error = failure instanceof Error ? failure.message : "连接失败，请检查后端是否启动";
     }
   } finally {
+    finishTiming();
     // 正常完成也必须清除定时器，避免旧请求的超时回调继续运行。
     window.clearTimeout(timeout);
     await reader?.cancel().catch(() => {});
@@ -738,7 +777,38 @@ async function stream(path: string, payload: Record<string, unknown>, slot: Chat
     target.stopping = false;
   }
 }
+/** 秒级显示执行用时，避免毫秒数影响阅读。 */
+function formatDuration(durationMs: number) {
+  const seconds = Math.max(0, Math.floor(durationMs / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds % 3600 / 60);
+  const remainder = seconds % 60;
+  return `${hours ? `${hours}小时 ` : ""}${minutes ? `${minutes}分钟 ` : ""}${remainder}秒`;
+}
+
 /** 根据当前会话真实工具事件显示进度，不作为助手正文或历史消息保存。 */
+// 未收到工具终态时不伪造“成功”，结束的旧调用显示为“已结束”。
+const toolRows = computed(() => tools.value.map(tool => {
+  const status = tool.status.toUpperCase();
+  if (status === "SUCCESS") {
+    return { ...tool, label: "调用成功", tone: "success" };
+  }
+  if (["ERROR", "FAILED"].includes(status)) {
+    return { ...tool, label: "调用失败", tone: "error" };
+  }
+  if (status === "DENIED") {
+    return { ...tool, label: "已拒绝", tone: "muted" };
+  }
+  if (confirmation.value?.tools.some(item => item.id === tool.id)
+      || (tool.name === "ask_user" && choicePending.value)) {
+    return { ...tool, label: "等待你的确认", tone: "waiting" };
+  }
+  return { ...tool, label: pending.value ? "执行中" : "已结束", tone: pending.value ? "running" : "muted" };
+}));
+const successfulTools = computed(() => toolRows.value.filter(tool => tool.tone === "success").length);
+const failedTools = computed(() => toolRows.value.filter(tool => tool.tone === "error").length);
+const runningTools = computed(() => toolRows.value.filter(tool => tool.tone === "running").length);
+
 const replyStatus = computed(() => {
   const view = activeView.value;
   if (view.stopping) {
@@ -891,32 +961,58 @@ const replyStatus = computed(() => {
         <div class="chat-role">
           {{ message.role === MessageRole.USER ? "你" : "助手" }}
         </div>
-        <div class="chat-content">{{ message.content || replyStatus }}</div>
+        <p v-if="message.role === MessageRole.ASSISTANT && message.durationMs != null" class="task-duration" aria-live="off">
+          {{ message.timing ? "已执行" : "用时" }} {{ formatDuration(message.durationMs) }}
+        </p>
+        <details v-if="message.role === MessageRole.ASSISTANT && message.reasoningContent" class="thinking-content">
+          <summary>查看思考过程</summary>
+          <div>{{ message.reasoningContent }}</div>
+        </details>
+        <MarkdownReply v-if="message.role === MessageRole.ASSISTANT && message.content" class="chat-content" :content="message.content" />
+        <div v-else-if="message.content || (!message.reasoningContent && message.timing)" class="chat-content">{{ message.content || replyStatus }}</div>
       </article>
     </section>
       <form class="chat-composer" @submit.prevent="send">
       <p v-if="pending" class="chat-status" role="status">{{ replyStatus }}</p>
       <p v-if="activeView.notice" class="chat-status" role="status">{{ activeView.notice }}</p>
       <p v-if="error" class="chat-error" role="alert">{{ error }}</p>
-      <div v-if="tools.length" class="tool-status" aria-live="polite">
-        <div v-for="tool in tools" :key="tool.id">{{ tool.name }} · {{ tool.status }}</div>
-      </div>
-      <section v-if="confirmation" class="tool-confirmation" aria-label="工具调用确认">
-        <template v-if="confirmation.type === InteractionType.CHOICE">
-          <strong>需要你的选择</strong>
-          <fieldset v-for="(question, index) in confirmation.questions" :key="question.questionId" class="choice-question" :disabled="workspaceBusy || pending || loading">
-            <legend>{{ question.question }}{{ question.multiple ? '（可多选）' : '（单选）' }}</legend>
-            <label v-for="(option, optionIndex) in question.options" :key="option.id" class="choice-option">
-              <input :type="question.multiple ? 'checkbox' : 'radio'" :name="question.questionId"
-                :checked="answers[index]?.selectedOptionIds.includes(option.id)"
-                @change="selectOption(index, option.id, question.multiple)" />
-              <span>{{ String.fromCharCode(65 + optionIndex) }}. {{ option.label }}<small v-if="option.description">{{ option.description }}</small></span>
-            </label>
-            <textarea v-if="question.allowText && answers[index]" v-model="answers[index]!.text" maxlength="4000" rows="2" aria-label="补充内容" placeholder="也可以补充内容或填写自己的选择" />
-          </fieldset>
-          <button type="button" :disabled="workspaceBusy || pending || loading" @click="answerQuestions">提交选择</button>
-        </template>
-        <template v-else>
+      <!-- 工具事件只更新内容，展开状态由用户控制；切换会话时重置为收起。 -->
+      <details v-if="tools.length" :key="`${activeWorkspace}:${sessionId}`" class="tool-status">
+        <summary>
+          <span class="tool-summary-title">工具调用 <span class="tool-count">{{ tools.length }}</span></span>
+          <span class="tool-summary-result">
+            <span v-if="successfulTools" class="tool-success-count">✓ {{ successfulTools }} 项成功</span>
+            <span v-if="failedTools" class="tool-failure-count">{{ failedTools }} 项失败</span>
+            <span v-if="runningTools">{{ runningTools }} 项执行中</span>
+            <span class="tool-expand-label">查看详情<span aria-hidden="true">⌄</span></span>
+          </span>
+        </summary>
+        <div class="tool-list">
+          <div v-for="tool in toolRows" :key="tool.id" class="tool-row">
+            <span class="tool-row-name">{{ tool.name }}</span>
+            <span :class="['tool-state', tool.tone]" :title="tool.status">{{ tool.label }}</span>
+          </div>
+        </div>
+      </details>
+      <details v-if="displayedChoice" :key="displayedChoice.requestId" class="tool-confirmation choice-drawer"
+        :open="!activeView.choiceCollapsed">
+        <summary>{{ choicePending && !pending ? '需要你的选择' : '查看已提交选择' }}<span>展开 / 收起</span></summary>
+        <fieldset v-for="(question, index) in displayedChoice.questions" :key="question.questionId" class="choice-question"
+          :disabled="!choicePending || workspaceBusy || pending || loading">
+          <legend>{{ question.question }}{{ question.multiple ? '（可多选）' : '（单选）' }}</legend>
+          <label v-for="(option, optionIndex) in question.options" :key="option.id" class="choice-option">
+            <input :type="question.multiple ? 'checkbox' : 'radio'" :name="question.questionId"
+              :checked="displayedAnswers[index]?.selectedOptionIds.includes(option.id)"
+              @change="selectOption(index, option.id, question.multiple)" />
+            <span>{{ String.fromCharCode(65 + optionIndex) }}. {{ option.label }}<small v-if="option.description">{{ option.description }}</small></span>
+          </label>
+          <textarea v-if="question.allowText && displayedAnswers[index]" :value="displayedAnswers[index]!.text"
+            maxlength="4000" rows="2" aria-label="补充内容" placeholder="也可以补充内容或填写自己的选择"
+            @input="updateChoiceText(index, $event)" />
+        </fieldset>
+        <button v-if="choicePending" type="button" :disabled="workspaceBusy || pending || loading" @click="answerQuestions">提交选择</button>
+      </details>
+      <section v-if="confirmation && confirmation.type !== InteractionType.CHOICE" class="tool-confirmation" aria-label="工具调用确认">
           <div class="authorization-heading">
             <strong>允许执行这些工具？</strong>
             <span>{{ confirmation.tools.length }} 项调用</span>
@@ -937,7 +1033,6 @@ const replyStatus = computed(() => {
             <button type="button" class="reject-tool" :disabled="workspaceBusy || pending || loading" @click="confirmTools(false)">拒绝</button>
           </div>
           <p class="authorization-hint">会话授权仅作用于当前用户和当前会话；选项问题仍由你回答。</p>
-        </template>
       </section>
       <p v-if="modelError" class="chat-error" role="alert">{{ modelError }}</p>
       <div class="chat-input-row">
@@ -945,7 +1040,7 @@ const replyStatus = computed(() => {
           v-model="input"
           aria-label="聊天内容"
           placeholder="想聊些什么？"
-          rows="3"
+          rows="2"
           :disabled="workspaceBusy || pending || loading || !!confirmation"
           @keydown.enter.exact.prevent="send"
         />
@@ -1262,6 +1357,7 @@ const replyStatus = computed(() => {
 }
 .chat-message.assistant .chat-content {
   max-width: 100%;
+  white-space: normal;
 }
 .chat-role {
   display: flex;
@@ -1291,16 +1387,16 @@ const replyStatus = computed(() => {
   display: flex;
   flex-direction: column;
   background: white;
-  padding: 20px 20px 14px;
+  padding: 14px 18px 10px;
   border: 1px solid #e0e6de;
-  border-radius: 25px;
+  border-radius: 22px;
   box-shadow: 0 6px 28px #20352708, 0 1px 3px #20352703;
 }
 .chat-input-row > textarea {
   width: 100%;
   box-sizing: border-box;
-  min-height: 88px;
-  padding: 4px 2px 12px;
+  min-height: 48px;
+  padding: 2px 2px 6px;
   line-height: 1.6;
 }
 .chat-input-row > textarea::placeholder { color: #b0b3b8; }
@@ -1342,7 +1438,7 @@ const replyStatus = computed(() => {
 @media (max-width: 640px) {
   .composer-hint { display: none; }
   .model-toolbar select { max-width: 190px; }
-  .chat-input-row { padding: 14px 14px 10px; border-radius: 22px; }
+  .chat-input-row { padding: 10px 14px 8px; border-radius: 20px; }
 }
 textarea {
   flex: 1;
@@ -1378,17 +1474,29 @@ button:disabled {
   color: #b42318;
   font-size: 14px;
 }
-.tool-status {
-  padding: 10px 14px;
-  margin-bottom: 10px;
-  background: #f0f3ee;
-  border: 1px solid #e6ebe3;
-  border-radius: 12px;
-  color: #7b8580;
-  font-size: 12px;
-  line-height: 1.7;
-  max-height: 86px;
-  overflow-y: auto;
+.tool-status { margin-bottom: 10px; border: 1px solid #e2e9df; border-radius: 12px; background: #f5f8f2; color: #7b8580; font-size: 12px; line-height: 1.7; }
+.tool-status > summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; list-style: none; }
+.tool-status > summary::-webkit-details-marker { display: none; }
+.tool-status > summary:focus-visible { outline: 2px solid #659774; outline-offset: 2px; border-radius: 12px; }
+.tool-summary-title { display: flex; align-items: center; gap: 8px; color: #49614e; font-weight: 500; flex-shrink: 0; }
+.tool-count { padding: 0 6px; border-radius: 5px; background: #e8efe4; font-size: 11px; }
+.tool-summary-result { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
+.tool-success-count { color: #548267; }
+.tool-failure-count { color: #b35749; }
+.tool-expand-label { display: flex; align-items: center; gap: 6px; color: #8b978b; }
+.tool-expand-label > span { display: inline-block; transition: transform .15s; }
+.tool-status[open] .tool-expand-label > span { transform: rotate(180deg); }
+.tool-list { height: 180px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 4px 14px 10px; border-top: 1px solid #e6ece2; }
+.tool-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; }
+.tool-row-name { min-width: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: #5b6b5e; }
+.tool-state { flex-shrink: 0; border-radius: 6px; padding: 2px 8px; font-size: 11px; background: #e9eee6; color: #84907f; }
+.tool-state.success { background: #e6f0e5; color: #487457; }
+.tool-state.error { background: #f9eae5; color: #b35749; }
+.tool-state.running, .tool-state.waiting { background: #f5eedb; color: #96804d; }
+@media (max-width: 640px) {
+  .tool-status > summary { padding: 9px 10px; gap: 8px; }
+  .tool-summary-result { gap: 6px; }
+  .tool-expand-label { font-size: 11px; }
 }
 .tool-confirmation {
   padding: 20px;
@@ -1547,7 +1655,7 @@ button:disabled {
   .chat-composer { width: calc(100% - 24px); margin-bottom: 12px; }
   .model-toolbar select { max-width: min(140px, calc(100vw - 260px)); font-size: 12px; }
   .composer-controls { gap: 6px; }
-  .chat-input-row { padding: 14px 12px 10px; border-radius: 19px; }
+  .chat-input-row { padding: 10px 12px 8px; border-radius: 19px; }
   .chat-empty { padding-top: 30px; }
   .chat-empty h1 { font-size: 23px; letter-spacing: -.5px; }
   .chat-empty p { font-size: 12px; }
@@ -1558,5 +1666,17 @@ button:disabled {
   .confirmation-actions button { padding: 8px 10px; font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .chat-page button { transition: none; } }
+.choice-drawer > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; color: #354d3e; font-weight: 600; }
+.choice-drawer > summary::-webkit-details-marker { display: none; }
+.choice-drawer > summary span { color: #7b897e; font-size: 12px; font-weight: 400; }
+.choice-drawer[open] > summary { margin-bottom: 18px; }
+.choice-drawer > summary:focus-visible { outline: 2px solid #659774; outline-offset: 4px; border-radius: 4px; }
+.thinking-content { width: 100%; margin-bottom: 12px; color: #7b897e; font-size: 13px; }
+.thinking-content > summary { cursor: pointer; padding: 6px 0; }
+.thinking-content > div { max-height: 280px; overflow-y: auto; padding: 12px 16px; margin-top: 6px; border-left: 2px solid #c8d8c8; background: #f2f6f0; border-radius: 0 8px 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
 </style>
 
+
+<style scoped>
+.task-duration { width: 100%; margin: 0 0 12px; padding-bottom: 10px; border-bottom: 1px solid #e5ebe5; color: #8a958d; font-size: 13px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+</style>
